@@ -1,0 +1,126 @@
+--- # file: main.yml
+- name: Configure CBI Linux Servers
+  hosts: all
+
+  vars:
+    ansible_host_key_checking: false
+
+  tasks:
+
+    # Quit if it is
+    - name: Check if we have limited play like we should
+      fail:
+        msg: 'Use --limit!'
+      when: ansible_limit is not defined
+      run_once: true
+      tags: [ 'always', 'never' ]
+
+    - name: Set CBI Facts
+      import_role:
+        name: cbi-facts
+      tags: [ 'always' ]
+
+    - name: Configure Yum
+      import_role:
+        name: configure-yum
+      tags: [ 'always' ]
+
+    - name: Configure RSYSLOG
+      import_role:
+        name: configure-rsyslog
+      tags: [ 'always' ]
+
+    - name: Apply Common Tasks (common role)
+      import_role:
+        name: common
+      tags: [ 'always' ]
+
+    - name: Update system (RHEL)
+      become: yes
+      yum:
+        disablerepo: "*"
+        enablerepo: "cwc-current*"
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_distribution != "Amazon"
+      tags: [ 'never' ]
+
+    - name: Update system (Amazon Linux)
+      become: yes
+      yum:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_distribution == "Amazon"
+      tags: [ 'never' ]
+
+    - name: Check for proper extra vars if SAP Hana server
+      fail:
+        msg: "SAP Servers require extra vars to be defined, sap_sids, sap_vhosts_names."
+      when:
+        - (('tag_AnsibleRoles_sap-hana' in group_names) or ('tag_AnsibleRoles_sap-app' in group_names))
+        - ((sap_sids is not defined) or (sap_vhost_names is not defined))
+      tags: [ 'always' ]
+
+    - name: Include sids vars
+      include_vars: sids.yml
+      when: ('tag_AnsibleRoles_sap-hana' in group_names) or ('tag_AnsibleRoles_sap-app' in group_names)
+      tags: [ 'always' ]
+
+    - name: Apply common sap tasks (sap-comon role)
+      import_role:
+        name: sap-common
+      when: ('tag_AnsibleRoles_sap-hana' in group_names) or ('tag_AnsibleRoles_sap-app' in group_names)
+      tags: [ 'always' ]
+
+
+    - name: Apply aws tasks (aws role)
+      import_role:
+        name: aws
+      when: datacenter == "nva" or datacenter == "ore"
+      tags: [ 'always' ]
+
+    - name: Apply webserver tasks (webserver role)
+      import_role:
+        name: webserver
+      when: ('tag_AnsibleRoles_generic-web' in group_names) or ('tag_AnsibleRoles-mulesoft' in group_names) or ('tag_AnsibleRoles-informatica' in group_names)
+      tags: [ 'always' ]
+
+    - name: Apply SAP Application Tasks (sap-app role)
+      import_role:
+        name: sap-app
+      when: ('tag_AnsibleRoles_sap-app' in group_names)
+      tags: [ 'always' ]
+
+    - name: Apply SAP Hana Tasks (sap-hana role)
+      import_role:
+        name: sap-hana
+      when: ('tag_AnsibleRoles_sap-hana' in group_names)
+      tags: [ 'always' ]
+
+    - name: Apply Oracle Database tasks (oracle-databse role)
+      import_role:
+        name: oracle-database
+      when: ('tag_AnsibleRoles_oracle-database' in group_names)
+      tags: [ 'always' ]
+
+    - name: Restore File context on /etc
+      become: yes
+      command: "/sbin/restorecon -F -r -v /etc"
+      register: rcon_results
+      failed_when: rcon_results.rc != 0
+      changed_when: rcon_results.rc == 0
+      tags: [ 'never' ]
+
+    - name: Auto-relable of entire system
+      become: yes
+      file:
+        dest: /.autorelabel
+        owner: root
+        group : root
+        mode: 0600
+        state: touch
+      tags: [ 'never' ]
+
+...
