@@ -1,5 +1,5 @@
 --- # file: main.yml
-- name: Configure CBI Linux Servers
+- name: Configure RHEL Servers
   hosts: all
 
   vars:
